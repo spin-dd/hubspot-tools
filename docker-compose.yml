@@ -1,0 +1,13 @@
+services:
+  app:
+    container_name: hubspot-tools-container
+    image: hubspot-tools-image
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      args:
+        BASE: /home/app
+    working_dir: /home/app
+    volumes:
+      - .:/home/app
+    tty: true

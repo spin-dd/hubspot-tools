@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 from mimetypes import guess_type
 from pathlib import Path
 from urllib.parse import unquote, urlparse, urlsplit
@@ -345,3 +346,96 @@ def extract(ctx, src_path, output_file, base_path):
         res = extract_elements(soup, profile_data, base_path=base_path)
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(str(res))
+
+
+def generate_toc(soup, title="目次"):
+    heading_tags = ["h2", "h3", "h4", "h5"]
+    headings = soup.find_all(heading_tags)
+
+    if not headings:
+        return str(soup)
+
+    # 2. ナビゲーションのルートを作成
+    nav_tag = soup.new_tag("nav", **{"class": "toc"})
+    root_ul = soup.new_tag("ul")
+    nav_tag.append(root_ul)
+
+    # 階層管理用のスタック (現在のレベル, 現在のul要素)
+    # h2をレベル2として、初期状態をセット
+    stack = [(1, root_ul)]
+
+    for i, header in enumerate(headings):
+        # 見出しのレベルを取得 (h2 -> 2, h3 -> 3...)
+        level = int(header.name[1])
+
+        # アンカー用のID設定 (IDがない場合は自動生成)
+        if not header.get("id"):
+            header["id"] = f"section-{i}"
+        header_id = header["id"]
+        header_text = header.get_text()
+
+        # 3. 適切な階層までスタックを戻す
+        # 今のレベルより浅い（数字が小さい）レベルが来たらスタックから取り出す
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+
+        # 現在の親ULを取得
+        parent_ul = stack[-1][1]
+
+        # 4. 新しいリストアイテム (li > a) の作成
+        new_li = soup.new_tag("li")
+        new_a = soup.new_tag("a", href=f"#{header_id}")
+        new_a.string = header_text
+        new_li.append(new_a)
+        parent_ul.append(new_li)
+
+        # 5. 次の要素が子階層になる可能性に備え、新しいULを準備
+        new_ul = soup.new_tag("ul")
+        new_li.append(new_ul)
+        stack.append((level, new_ul))
+
+    # 不要な空のULを削除するクリーンアップ
+    for ul in nav_tag.find_all("ul"):
+        if not ul.contents:
+            ul.decompose()
+
+    container_div = soup.new_tag("div", attrs={"class": "toc-container"})
+    title_div = soup.new_tag("div", attrs={"class": "toc-title"})
+    title_p = soup.new_tag("p")
+    title_p.string = title
+    title_div.append(title_p)
+
+    container_div.append(title_div)
+    container_div.append(nav_tag)
+
+    # 先頭にnavを挿入（例としてbodyの先頭）
+    if soup.body:
+        soup.body.insert(0, container_div)
+    else:
+        # bodyがない場合は全体の先頭に
+        soup.insert(0, container_div)
+
+    return soup
+
+
+@html.command()
+@click.argument("src_path")
+@click.option("--output_file", "-o", type=click.Path(), default=None)
+@click.pass_context
+def make_nav(ctx, src_path, output_file):
+    """ページ内ナビゲーションを作る"""
+
+    if src_path == "-":
+        content = sys.stdin.read()
+        if not content:
+            print("データがありません")
+            return
+        soup = Soup(content, "html.parser")
+
+    else:
+        with open(src_path, encoding="utf-8") as f:
+            soup = Soup(f, "html.parser")
+
+    if soup:
+        res = generate_toc(soup)
+        print(res.prettify())
