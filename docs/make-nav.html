@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyScript x BeautifulSoup4 nav 生成</title>
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 10px;
+        }
+
+        #output {
+            background: #f4f4f4;
+            padding: 15px;
+            border: 1px solid #ccc;
+            white-space: pre-wrap;
+        }
+
+        .controls {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>ページ内目次生成ツール</h1>
+
+    <p>HTMLを貼り付けて「変換」ボタンを押してください：</p>
+    <textarea id="input_html" placeholder="ここにHTMLを入力...">
+<div>
+    <h2>導入</h2>
+    <p>ここは導入文です。</p>
+    <h3>背景</h3>
+    <h4>歴史的経緯</h4>
+    <h3>目的</h3>
+    <h2>本題</h2>
+    <h3>手法</h3>
+    <h4>実装詳細</h4>
+    <h5>アルゴリズム</h5>
+    <h2>まとめ</h2>
+</div>
+    </textarea>
+
+    <div class="controls">
+        <button id="convert_btn" type="button" class="py-button">リンクを抽出して変換</button>
+    </div>
+
+    <h3>結果：</h3>
+    <div id="output">変換結果がここに表示されます</div>
+
+    <py-config>
+        packages = ["beautifulsoup4"]
+    </py-config>
+
+    <script type="py">
+        from pyscript import document
+        from bs4 import BeautifulSoup
+
+
+        def generate_toc(soup, title="目次"):
+            heading_tags = ["h2", "h3", "h4", "h5"]
+            headings = soup.find_all(heading_tags)
+        
+            if not headings:
+                return str(soup)
+        
+            # 2. ナビゲーションのルートを作成
+            nav_tag = soup.new_tag("nav", **{"class": "toc"})
+            root_ul = soup.new_tag("ul")
+            nav_tag.append(root_ul)
+        
+            # 階層管理用のスタック (現在のレベル, 現在のul要素)
+            # h2をレベル2として、初期状態をセット
+            stack = [(1, root_ul)]
+        
+            for i, header in enumerate(headings):
+                # 見出しのレベルを取得 (h2 -> 2, h3 -> 3...)
+                level = int(header.name[1])
+        
+                # アンカー用のID設定 (IDがない場合は自動生成)
+                if not header.get("id"):
+                    header["id"] = f"section-{i}"
+                header_id = header["id"]
+                header_text = header.get_text()
+        
+                # 3. 適切な階層までスタックを戻す
+                # 今のレベルより浅い（数字が小さい）レベルが来たらスタックから取り出す
+                while stack and stack[-1][0] >= level:
+                    stack.pop()
+        
+                # 現在の親ULを取得
+                parent_ul = stack[-1][1]
+        
+                # 4. 新しいリストアイテム (li > a) の作成
+                new_li = soup.new_tag("li")
+                new_a = soup.new_tag("a", href=f"#{header_id}")
+                new_a.string = header_text
+                new_li.append(new_a)
+                parent_ul.append(new_li)
+        
+                # 5. 次の要素が子階層になる可能性に備え、新しいULを準備
+                new_ul = soup.new_tag("ul")
+                new_li.append(new_ul)
+                stack.append((level, new_ul))
+        
+            # 不要な空のULを削除するクリーンアップ
+            for ul in nav_tag.find_all("ul"):
+                if not ul.contents:
+                    ul.decompose()
+        
+            container_div = soup.new_tag("div", attrs={"class": "toc-container"})
+            title_div = soup.new_tag("div", attrs={"class": "toc-title"})
+            title_p = soup.new_tag("p")
+            title_p.string = title
+            title_div.append(title_p)
+        
+            container_div.append(title_div)
+            container_div.append(nav_tag)
+        
+            # 先頭にnavを挿入（例としてbodyの先頭）
+            if soup.body:
+                soup.body.insert(0, container_div)
+            else:
+                # bodyがない場合は全体の先頭に
+                soup.insert(0, container_div)
+        
+            return soup
+        
+        def handle_convert(event):
+            # 1. 入力値の取得
+            input_text = document.getElementById("input_html").value
+            output_div = document.getElementById("output")
+
+            try:
+                # 2. BeautifulSoupで解析
+                soup = BeautifulSoup(input_text, "html.parser")
+
+                res = generate_toc(soup)
+
+                result_text = res.prettify()
+                # ---------------------------------------------
+
+                # 3. 画面に反映
+                output_div.innerText = result_text
+
+            except Exception as e:
+                output_div.innerText = f"エラーが発生しました: {str(e)}"
+
+        # ボタンにクリックイベントを登録
+        document.getElementById("convert_btn").onclick = handle_convert
+    </script>
+
+</body>
+
+</html>
